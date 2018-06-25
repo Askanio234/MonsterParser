@@ -9,6 +9,8 @@ MAIN_DATA_KEY = 'mainEntityOfPage'
 
 MAX_PAGE = 2
 
+DESCRIPTION_ID = 'JobDescription'
+
 
 def get_html_page(url):
     request = requests.get(url)
@@ -31,8 +33,8 @@ def get_vacancies_urls(json_data):
 def get_vacancy_description(url):
     html = get_html_page(url)
     soup = BeautifulSoup(html, 'html.parser')
-    script = soup.find('script', type='application/ld+json')
-    return json.loads(script.get_text())['description']
+    description = soup.find('div', id=DESCRIPTION_ID)
+    return description.get_text()
 
 
 if __name__ == '__main__':
@@ -40,4 +42,3 @@ if __name__ == '__main__':
     vacancies_data = get_vacancies_data(html)
     vacancies_urls = get_vacancies_urls(vacancies_data)
     desc = get_vacancy_description(vacancies_urls[0])
-    print(desc)
