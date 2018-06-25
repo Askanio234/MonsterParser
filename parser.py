@@ -1,7 +1,11 @@
 import json
+import time
+import random
+from string import ascii_uppercase
 import requests
 from bs4 import BeautifulSoup
 
+LETTERS = ascii_uppercase
 
 TARGET_URL = 'https://www.monster.com/jobs/q-financial-analyst-jobs.aspx?page=1'
 
@@ -11,14 +15,39 @@ MAX_PAGE = 2
 
 DESCRIPTION_ID = 'JobDescription'
 
+MIN_SEC = 15
+MAX_SEC = 30
 
-def get_html_page(url):
-    request = requests.get(url)
-    return request.text
+HEADERS = {
+            #'User-Agent': 'Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)'
+            'User-Agent': 'Mozilla/5.0'
+            '(Windows NT 10.0; WOW64; rv:53.0) Gecko/20100101 Firefox/53.0'
+}
+
+
+PROXIES = {
+    'https': 'https://80.211.169.186:8080'
+}
+
+
+def get_raw_html(request):
+    if request.status_code == requests.codes.ok:
+        return request.text
+    else:
+        print('STATUS CODE IS NOT 200')
+
+
+def fetch_page(url, headers, proxies):
+    request = requests.get(url, headers=headers, proxies=proxies)
+    return get_raw_html(request)
+
+
+def intialise_soup(html):
+    return BeautifulSoup(html, 'html.parser')
 
 
 def get_vacancies_data(html):
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = intialise_soup(html)
     scripts = soup.find_all('script', type='application/ld+json')
     for script in scripts:
         jsonifed_data = json.loads(script.get_text())
@@ -31,14 +60,25 @@ def get_vacancies_urls(json_data):
 
 
 def get_vacancy_description(url):
-    html = get_html_page(url)
-    soup = BeautifulSoup(html, 'html.parser')
+    time.sleep(random.randrange(MIN_SEC, MAX_SEC))
+    html = fetch_page(url, HEADERS, PROXIES)
+    soup = intialise_soup(html)
     description = soup.find('div', id=DESCRIPTION_ID)
     return description.get_text()
 
 
+def parse_vacancies_descriptions_from_page(vacancies_urls):
+    return [get_vacancy_description(url) for url in vacancies_urls]
+
+
+def write_to_file(descriptions, filename='output.txt'):
+    with open(filename, 'w') as fh:
+        fh.writelines(descriptions)
+
+
 if __name__ == '__main__':
-    html = get_html_page(TARGET_URL)
+    html = fetch_page(TARGET_URL, HEADERS, PROXIES)
     vacancies_data = get_vacancies_data(html)
     vacancies_urls = get_vacancies_urls(vacancies_data)
-    desc = get_vacancy_description(vacancies_urls[0])
+    desc = parse_vacancies_descriptions_from_page(vacancies_urls)
+    write_to_file(desc)
