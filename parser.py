@@ -1,24 +1,24 @@
+import argparse
 import json
 import time
 import random
-from string import ascii_uppercase
 import requests
 from bs4 import BeautifulSoup
 from proxies import PROXIES_LIST
 
 
-LETTERS = ascii_uppercase
-
-TARGET_URL = 'https://www.monster.com/jobs/q-financial-analyst-jobs.aspx?page=1'
+TARGET_URL = 'https://www.monster.com/jobs/q-financial-analyst-jobs.aspx'
 
 MAIN_DATA_KEY = 'mainEntityOfPage'
+
+MAX_RETRIES = 2
 
 MAX_PAGE = 2
 
 DESCRIPTION_ID = 'JobDescription'
 
-MIN_SEC = 15
-MAX_SEC = 20
+MIN_SEC = 5
+MAX_SEC = 15
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0'
@@ -26,12 +26,8 @@ HEADERS = {
 }
 
 
-#PROXIES = {
-    #'https': 'https://80.211.169.186:8080'
-#}
-
 def print_proxy(proxy):
-    print('Using - {}'.format(proxy))
+    print('Using - {}'.format(list(proxy.values())[0]))
 
 
 def get_proxy(proxies_list):
@@ -45,7 +41,7 @@ def get_raw_html(request):
     if request.status_code == requests.codes.ok:
         return request.text
     else:
-        print('STATUS CODE IS NOT 200')
+        print('status code is not 200')
 
 
 def fetch_page(url, headers, proxies_list):
@@ -54,11 +50,32 @@ def fetch_page(url, headers, proxies_list):
         request = requests.get(url, headers=headers, proxies=proxies)
         return get_raw_html(request)
     except requests.RequestException:
-        print('Could not get response from the site')
+        print('No response')
+        pass
+
+
+def fetch_page_with_retry(url, headers, proxies, max_num_retries):
+    html = None
+    retries = 0
+    while retries < max_num_retries and html is None:
+        time.sleep(random.randrange(MIN_SEC, MAX_SEC))
+        html = fetch_page(url, HEADERS, PROXIES_LIST)
+        retries += 1
+    return html
 
 
 def intialise_soup(html):
     return BeautifulSoup(html, 'html.parser')
+
+
+def determine_max_pages(url):
+    html = fetch_page_with_retry(url, HEADERS, PROXIES_LIST, 5)
+    if html is not None:
+        soup = intialise_soup(html)
+        number = soup.find('input', id='totalPages')
+        return int(number.get('value'))
+    else:
+        print('Failed to determine max_pages')
 
 
 def get_vacancies_data(html):
@@ -75,18 +92,17 @@ def get_vacancies_urls(json_data):
 
 
 def format_description(description):
-    return '{}\n'.format(description[1:])
+    return '{}\n'.format(description[1:].replace('\n', ' '))
 
 
 def get_vacancy_description(url):
-    time.sleep(random.randrange(MIN_SEC, MAX_SEC))
-    html = fetch_page(url, HEADERS, PROXIES_LIST)
+    print('Parsing - {}'.format(url))
+    html = fetch_page_with_retry(url, HEADERS, PROXIES_LIST, MAX_RETRIES)
     if html is not None:
         soup = intialise_soup(html)
         description = soup.find('div', id=DESCRIPTION_ID)
         return format_description(description.get_text())
-    else:
-        return 'n/a\n'
+    return 'n/a\n'
 
 
 def parse_vacancies_descriptions_from_page(vacancies_urls):
@@ -94,16 +110,40 @@ def parse_vacancies_descriptions_from_page(vacancies_urls):
 
 
 def write_to_file(descriptions, filename='output.txt'):
-    with open(filename, 'w') as fh:
+    with open(filename, 'a') as fh:
         fh.writelines(descriptions)
 
 
-def parse_vacanies_page(TARGET_URL, page_num):
-    pass
+def parse_vacanies_page(target_url, page_num):
+    url = '{}?page={}'.format(target_url, page_num)
+    html = fetch_page_with_retry(url, HEADERS, PROXIES_LIST, MAX_RETRIES)
+    if html is not None:
+        vacancies_data = get_vacancies_data(html)
+        vacancies_urls = get_vacancies_urls(vacancies_data)
+        desc = parse_vacancies_descriptions_from_page(vacancies_urls)
+        write_to_file(desc)
+    else:
+        print('Failed to parse pagenum {}'.format(page_num))
+
+
+def parse_main(url, limit):
+    page_num = 1
+    max_pages = determine_max_pages(url)
+    while page_num <= max_pages and page_num <= limit:
+        parse_vacanies_page(url, page_num)
+        page_num += 1
+
+
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", help="Target_url",
+                        default=TARGET_URL, required=False)
+    parser.add_argument("--max_pages", help="Max pages to parse",
+                        type=int, default=2, required=False)
+    args = parser.parse_args()
+    return args
+
 
 if __name__ == '__main__':
-    html = fetch_page(TARGET_URL, HEADERS, PROXIES_LIST)
-    vacancies_data = get_vacancies_data(html)
-    vacancies_urls = get_vacancies_urls(vacancies_data)
-    desc = parse_vacancies_descriptions_from_page(vacancies_urls[:2])
-    write_to_file(desc)
+    args = get_args()
+    parse_main(args.url, args.max_pages)
